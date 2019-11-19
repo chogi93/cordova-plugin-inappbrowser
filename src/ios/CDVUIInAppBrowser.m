@@ -53,7 +53,7 @@ static CDVUIInAppBrowser* instance = nil;
     instance = self;
     _previousStatusBarStyle = -1;
     _callbackIdPattern = nil;
-    _beforeload = @"";
+    _useBeforeload = NO;
     _waitForBeforeload = NO;
 }
 
@@ -172,8 +172,7 @@ static CDVUIInAppBrowser* instance = nil;
     [self.inAppBrowserViewController showLocationBar:browserOptions.location];
     [self.inAppBrowserViewController showToolBar:browserOptions.toolbar :browserOptions.toolbarposition];
     if (browserOptions.closebuttoncaption != nil || browserOptions.closebuttoncolor != nil) {
-        int closeButtonIndex = browserOptions.lefttoright ? (browserOptions.hidenavigationbuttons ? 1 : 4) : 0;
-        [self.inAppBrowserViewController setCloseButtonTitle:browserOptions.closebuttoncaption :browserOptions.closebuttoncolor :closeButtonIndex];
+        [self.inAppBrowserViewController setCloseButtonTitle:browserOptions.closebuttoncaption :browserOptions.closebuttoncolor];
     }
     // Set Presentation Style
     UIModalPresentationStyle presentationStyle = UIModalPresentationFullScreen; // default
@@ -220,12 +219,8 @@ static CDVUIInAppBrowser* instance = nil;
     }
 
     // use of beforeload event
-    if([browserOptions.beforeload isKindOfClass:[NSString class]]){
-        _beforeload = browserOptions.beforeload;
-    }else{
-        _beforeload = @"yes";
-    }
-    _waitForBeforeload = ![_beforeload isEqualToString:@""];
+    _useBeforeload = browserOptions.beforeload;
+    _waitForBeforeload = browserOptions.beforeload;
 
     [self.inAppBrowserViewController navigateTo:url];
     if (!browserOptions.hidden) {
@@ -325,7 +320,7 @@ static CDVUIInAppBrowser* instance = nil;
 {
     NSString* urlStr = [command argumentAtIndex:0];
 
-    if ([_beforeload isEqualToString:@""]) {
+    if (!_useBeforeload) {
         NSLog(@"unexpected loadAfterBeforeload called without feature beforeload=yes");
     }
     if (self.inAppBrowserViewController == nil) {
@@ -340,6 +335,16 @@ static CDVUIInAppBrowser* instance = nil;
     NSURL* url = [NSURL URLWithString:urlStr];
     _waitForBeforeload = NO;
     [self.inAppBrowserViewController navigateTo:url];
+}
+
+-(void)createIframeBridge
+{
+    // Create an iframe bridge in the new document to communicate with the CDVThemeableBrowserViewController
+    NSString* jsIframeBridge = @"var e = _cdvIframeBridge=d.getElementById('_cdvIframeBridge'); if(!_cdvIframeBridge) {e = _cdvIframeBridge = d.createElement('iframe'); e.id='_cdvIframeBridge'; e.style.display='none'; d.body.appendChild(e);}";
+    // Add the postMessage API
+    NSString* jspostMessageApi = @"window.webkit={messageHandlers:{cordova_iab:{postMessage:function(message){_cdvIframeBridge.src='gap-iab://message/'+encodeURIComponent(message);}}}}";
+    // Inject the JS to the webview
+    [self.inAppBrowserViewController.webView stringByEvaluatingJavaScriptFromString:[NSString stringWithFormat:@"(function(d){%@%@})(document)", jsIframeBridge, jspostMessageApi]];
 }
 
 // This is a helper method for the inject{Script|Style}{Code|File} API calls, which
@@ -449,22 +454,6 @@ static CDVUIInAppBrowser* instance = nil;
     NSURL* url = request.URL;
     BOOL isTopLevelNavigation = [request.URL isEqual:[request mainDocumentURL]];
     BOOL shouldStart = YES;
-    BOOL useBeforeLoad = NO;
-    NSString* httpMethod = request.HTTPMethod;
-    NSString* errorMessage = nil;
-
-    if([_beforeload isEqualToString:@"post"]){
-        //TODO handle POST requests by preserving POST data then remove this condition
-        errorMessage = @"beforeload doesn't yet support POST requests";
-    }
-    else if(isTopLevelNavigation && (
-         [_beforeload isEqualToString:@"yes"]
-         || ([_beforeload isEqualToString:@"get"] && [httpMethod isEqualToString:@"GET"])
-      // TODO comment in when POST requests are handled
-      // || ([_beforeload isEqualToString:@"post"] && [httpMethod isEqualToString:@"POST"])
-    )){
-        useBeforeLoad = YES;
-    }
 
     // See if the url uses the 'gap-iab' protocol. If so, the host should be the id of a callback to execute,
     // and the path, if present, should be a JSON-encoded value to pass to the callback.
@@ -490,25 +479,33 @@ static CDVUIInAppBrowser* instance = nil;
             }
             [self.commandDelegate sendPluginResult:pluginResult callbackId:scriptCallbackId];
             return NO;
+        }else if ([scriptCallbackId isEqualToString:@"message"] && (self.callbackId != nil)) {
+            // Send a message event
+            NSString* scriptResult = [url path];
+            if ((scriptResult != nil) && ([scriptResult length] > 1)) {
+                scriptResult = [scriptResult substringFromIndex:1];
+                NSError* __autoreleasing error = nil;
+                NSData* decodedResult = [NSJSONSerialization JSONObjectWithData:[scriptResult dataUsingEncoding:NSUTF8StringEncoding] options:kNilOptions error:&error];
+                if (error == nil) {
+                    NSMutableDictionary* dResult = [NSMutableDictionary new];
+                    [dResult setValue:@"message" forKey:@"type"];
+                    [dResult setObject:decodedResult forKey:@"data"];
+                    CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:dResult];
+                    [pluginResult setKeepCallback:[NSNumber numberWithBool:YES]];
+                    [self.commandDelegate sendPluginResult:pluginResult callbackId:self.callbackId];
+                }
+            }
         }
     }
 
-    // When beforeload, on first URL change, initiate JS callback. Only after the beforeload event, continue.
-    if (_waitForBeforeload && useBeforeLoad) {
+    // When beforeload=yes, on first URL change, initiate JS callback. Only after the beforeload event, continue.
+    if (_waitForBeforeload && isTopLevelNavigation) {
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
                                                       messageAsDictionary:@{@"type":@"beforeload", @"url":[url absoluteString]}];
         [pluginResult setKeepCallback:[NSNumber numberWithBool:YES]];
 
         [self.commandDelegate sendPluginResult:pluginResult callbackId:self.callbackId];
         return NO;
-    }
-
-    if(errorMessage != nil){
-        NSLog(errorMessage);
-        CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR
-                                                      messageAsDictionary:@{@"type":@"loaderror", @"url":[url absoluteString], @"code": @"-1", @"message": errorMessage}];
-        [pluginResult setKeepCallback:[NSNumber numberWithBool:YES]];
-        [self.commandDelegate sendPluginResult:pluginResult callbackId:self.callbackId];
     }
 
     //if is an app store link, let the system handle it, otherwise it fails to load it
@@ -526,7 +523,7 @@ static CDVUIInAppBrowser* instance = nil;
         [self.commandDelegate sendPluginResult:pluginResult callbackId:self.callbackId];
     }
 
-    if (useBeforeLoad) {
+    if (_useBeforeload && isTopLevelNavigation) {
         _waitForBeforeload = YES;
     }
 
@@ -539,6 +536,7 @@ static CDVUIInAppBrowser* instance = nil;
 
 - (void)webViewDidFinishLoad:(UIWebView*)theWebView
 {
+    [self createIframeBridge];
     if (self.callbackId != nil) {
         // TODO: It would be more useful to return the URL the page is actually on (e.g. if it's been redirected).
         NSString* url = [self.inAppBrowserViewController.currentURL absoluteString];
@@ -737,15 +735,9 @@ static CDVUIInAppBrowser* instance = nil;
 
     // Filter out Navigation Buttons if user requests so
     if (_browserOptions.hidenavigationbuttons) {
-        if (_browserOptions.lefttoright) {
-            [self.toolbar setItems:@[flexibleSpaceButton, self.closeButton]];
-        } else {
-            [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton]];
-        }
-    } else if (_browserOptions.lefttoright) {
-        [self.toolbar setItems:@[self.backButton, fixedSpaceButton, self.forwardButton, flexibleSpaceButton, self.closeButton]];
+      [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton]];
     } else {
-        [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, self.backButton, fixedSpaceButton, self.forwardButton]];
+      [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, self.backButton, fixedSpaceButton, self.forwardButton]];
     }
 
     self.view.backgroundColor = [UIColor grayColor];
@@ -759,7 +751,7 @@ static CDVUIInAppBrowser* instance = nil;
     [self.webView setFrame:frame];
 }
 
-- (void)setCloseButtonTitle:(NSString*)title : (NSString*) colorString : (int) buttonIndex
+- (void)setCloseButtonTitle:(NSString*)title : (NSString*) colorString
 {
     // the advantage of using UIBarButtonSystemItemDone is the system will localize it for you automatically
     // but, if you want to set this yourself, knock yourself out (we can't set the title for a system Done button, so we have to create a new one)
@@ -771,7 +763,7 @@ static CDVUIInAppBrowser* instance = nil;
     self.closeButton.tintColor = colorString != nil ? [self colorFromHexString:colorString] : [UIColor colorWithRed:60.0 / 255.0 green:136.0 / 255.0 blue:230.0 / 255.0 alpha:1];
 
     NSMutableArray* items = [self.toolbar.items mutableCopy];
-    [items replaceObjectAtIndex:buttonIndex withObject:self.closeButton];
+    [items replaceObjectAtIndex:0 withObject:self.closeButton];
     [self.toolbar setItems:items];
 }
 
@@ -1098,3 +1090,5 @@ static CDVUIInAppBrowser* instance = nil;
 }
 
 @end
+
+

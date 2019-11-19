@@ -35,7 +35,7 @@
   UIWindow * tmpWindow;
 
   @private
-  NSString* _beforeload;
+  BOOL _useBeforeload;
   BOOL _waitForBeforeload;
 }
 
@@ -84,7 +84,7 @@
 - (void)navigateTo:(NSURL*)url;
 - (void)showLocationBar:(BOOL)show;
 - (void)showToolBar:(BOOL)show : (NSString *) toolbarPosition;
-- (void)setCloseButtonTitle:(NSString*)title : (NSString*) colorString : (int) buttonIndex;
+- (void)setCloseButtonTitle:(NSString*)title : (NSString*) colorString;
 
 - (id)initWithUserAgent:(NSString*)userAgent prevUserAgent:(NSString*)prevUserAgent browserOptions: (CDVInAppBrowserOptions*) browserOptions;
 
