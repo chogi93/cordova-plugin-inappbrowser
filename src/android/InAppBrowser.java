@@ -926,7 +926,7 @@ public class InAppBrowser extends CordovaPlugin {
         }
 
         private boolean isLocalFile(String path) {
-            if (path.contains(iamportFilePrefix)) {
+            if (path != null && path.contains(iamportFilePrefix)) {
                 return true;
             }
 
