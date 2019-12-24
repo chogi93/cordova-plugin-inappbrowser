@@ -29,7 +29,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Browser;
-import android.support.annotation.RequiresApi;
+// import android.support.annotation.RequiresApi;
 import android.text.InputType;
 import android.util.Log;
 import android.util.TypedValue;
@@ -888,7 +888,7 @@ public class InAppBrowser extends CordovaPlugin {
             return false;
         }
 
-        @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
+        // @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
             String path = request.getUrl().getPath();
