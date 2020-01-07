@@ -6,9 +6,7 @@
  to you under the Apache License, Version 2.0 (the
  "License"); you may not use this file except in compliance
  with the License.  You may obtain a copy of the License at
-
  http://www.apache.org/licenses/LICENSE-2.0
-
  Unless required by applicable law or agreed to in writing,
  software distributed under the License is distributed on an
  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -32,9 +30,20 @@
 - (void) viewDidLoad {
 
     CGRect statusBarFrame = [self invertFrameIfNeeded:[UIApplication sharedApplication].statusBarFrame];
-    statusBarFrame.size.height = STATUSBAR_HEIGHT;
-    // simplified from: http://stackoverflow.com/a/25669695/219684
 
+    //simplified from https://github.com/apache/cordova-plugin-inappbrowser/issues/301#issuecomment-452220131
+    //and https://stackoverflow.com/questions/46192280/detect-if-the-device-is-iphone-x
+    bool hasTopNotch = NO;
+    if (@available(iOS 11.0, *)) {
+        hasTopNotch = [[[UIApplication sharedApplication] delegate] window].safeAreaInsets.top > 20.0;
+    }
+    if(hasTopNotch){
+        statusBarFrame.size.height = [UIApplication sharedApplication].statusBarFrame.size.height;
+    } else {
+        statusBarFrame.size.height = STATUSBAR_HEIGHT;
+    }
+
+    // simplified from: http://stackoverflow.com/a/25669695/219684
     UIToolbar* bgToolbar = [[UIToolbar alloc] initWithFrame:statusBarFrame];
     bgToolbar.barStyle = UIBarStyleDefault;
     [bgToolbar setAutoresizingMask:UIViewAutoresizingFlexibleWidth];
